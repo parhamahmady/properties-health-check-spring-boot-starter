@@ -1,6 +1,7 @@
 package org.parham.configurationspellcheck.service;
 
 import lombok.extern.slf4j.Slf4j;
+import org.parham.configurationspellcheck.annotation.IgnorePropertyCheck;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.beans.factory.annotation.Value;
@@ -35,8 +36,9 @@ public class PropertiesHealthCheckBeanPostProcessor
     @Override
     public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
         final Class<?> beanClass = bean.getClass();
+        final IgnorePropertyCheck ignorePropertyCheckAnn = applicationContext.findAnnotationOnBean(beanName, IgnorePropertyCheck.class);
         //todo add ignore list
-        if (beanClass.getPackageName().startsWith("org.springframework"))
+        if (ignorePropertyCheckAnn != null || beanClass.getPackageName().startsWith("org.springframework"))
             return bean;
         checkFieldProperties(beanName, beanClass);
         checkConstructorBindingProperties(beanName, beanClass);
@@ -46,10 +48,15 @@ public class PropertiesHealthCheckBeanPostProcessor
     private void checkConstructorBindingProperties(String beanName, Class<?> beanClass) {
         ConstructorBinding constructorBindingAnn = applicationContext.findAnnotationOnBean(beanName, ConstructorBinding.class);
         ConfigurationProperties configurationPropertiesAnn = applicationContext.findAnnotationOnBean(beanName, ConfigurationProperties.class);
+        if (configurationPropertiesAnn == null)
+            return;
+
         final Constructor<?>[] constructors = beanClass.getConstructors();
         for (Constructor<?> constructor : constructors) {
             if (constructorBindingAnn == null) {
                 constructorBindingAnn = constructor.getAnnotation(ConstructorBinding.class);
+                if (constructorBindingAnn == null)
+                    continue;
             }
             String prefix = Objects.requireNonNull(configurationPropertiesAnn).prefix();
             Parameter[] parameters = constructor.getParameters();
@@ -74,9 +81,12 @@ public class PropertiesHealthCheckBeanPostProcessor
         }
 
         for (Field field : beanClassFields) {
-            //todo check ignore
+            if (field.getAnnotation(IgnorePropertyCheck.class) != null)
+                continue;
+
             if (!fieldHasSetter(beanClass, field))
                 continue;
+
             if (field.isAnnotationPresent(Value.class)) {
                 final Value valueAnnotation = field.getAnnotation(Value.class);
                 final String propertyKey = valueAnnotation.value();
