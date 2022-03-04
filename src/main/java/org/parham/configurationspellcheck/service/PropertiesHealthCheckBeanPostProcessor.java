@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.ConfigurationPropertiesBinding;
+import org.springframework.boot.context.properties.ConstructorBinding;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextAware;
 import org.springframework.context.EnvironmentAware;
@@ -17,10 +18,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.util.ClassUtils;
 import org.springframework.util.StringUtils;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
-import java.lang.reflect.ParameterizedType;
-import java.lang.reflect.Type;
+import java.lang.reflect.*;
 import java.util.Map;
 import java.util.Objects;
 
@@ -41,7 +39,29 @@ public class PropertiesHealthCheckBeanPostProcessor
         if (beanClass.getPackageName().startsWith("org.springframework"))
             return bean;
         checkFieldProperties(beanName, beanClass);
+        checkConstructorBindingProperties(beanName, beanClass);
         return bean;
+    }
+
+    private void checkConstructorBindingProperties(String beanName, Class<?> beanClass) {
+        ConstructorBinding constructorBindingAnn = applicationContext.findAnnotationOnBean(beanName, ConstructorBinding.class);
+        ConfigurationProperties configurationPropertiesAnn = applicationContext.findAnnotationOnBean(beanName, ConfigurationProperties.class);
+        final Constructor<?>[] constructors = beanClass.getConstructors();
+        for (Constructor<?> constructor : constructors) {
+            if (constructorBindingAnn == null) {
+                constructorBindingAnn = constructor.getAnnotation(ConstructorBinding.class);
+            }
+            String prefix = Objects.requireNonNull(configurationPropertiesAnn).prefix();
+            Parameter[] parameters = constructor.getParameters();
+            for (Parameter parameter : parameters) {
+                String propertyKey = prefix + "." + parameter.getName()
+                        .replaceAll("(?<!^)([A-Z])", "-$1").toLowerCase();
+                final String property = environment.getProperty(propertyKey);
+                if (!StringUtils.hasLength(property)) {
+                    log.warn("Constructor Parameter {} may set invalid for Bean {}, PropertyKey was: {} and Value was Null or Not Founded", parameter.getName(), beanName, propertyKey);
+                }
+            }
+        }
     }
 
     private void checkFieldProperties(String beanName, Class<?> beanClass) {
