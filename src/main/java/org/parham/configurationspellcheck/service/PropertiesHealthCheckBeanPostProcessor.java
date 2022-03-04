@@ -1,7 +1,9 @@
 package org.parham.configurationspellcheck.service;
 
 import lombok.extern.slf4j.Slf4j;
+import org.parham.configurationspellcheck.annotation.CriticalProperty;
 import org.parham.configurationspellcheck.annotation.IgnorePropertyCheck;
+import org.parham.configurationspellcheck.exception.CriticalFieldInvalidValue;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.beans.factory.annotation.Value;
@@ -81,7 +83,7 @@ public class PropertiesHealthCheckBeanPostProcessor
         }
 
         for (Field field : beanClassFields) {
-            if (field.getAnnotation(IgnorePropertyCheck.class) != null)
+            if (field.isAnnotationPresent(IgnorePropertyCheck.class))
                 continue;
 
             if (!fieldHasSetter(beanClass, field))
@@ -90,22 +92,27 @@ public class PropertiesHealthCheckBeanPostProcessor
             if (field.isAnnotationPresent(Value.class)) {
                 final Value valueAnnotation = field.getAnnotation(Value.class);
                 final String propertyKey = valueAnnotation.value();
-                final String property = environment.getProperty(propertyKey);
-                if (!StringUtils.hasLength(property))
-                    log.warn("Field {} may set invalid for Bean {}, PropertyKey was: {} and Value was Null or Not Founded", field.getName(), beanName, propertyKey);
-                //todo add error for critical properties
-                //todo add option to log (@Critical) and  throwing
+                checkPropertyFromEnvironment(beanName, field, propertyKey);
             } else if (configurationPropertiesAnnotationPresent && isFieldAutoConfigurationAllowed(field)) {
                 final String fieldName = field.getName();
                 final ConfigurationProperties configurationPropertiesAnn = applicationContext.findAnnotationOnBean(beanName, ConfigurationProperties.class);
                 final String propertyKey = Objects.requireNonNull(configurationPropertiesAnn).prefix() + "." +
                         fieldName.replaceAll("(?<!^)([A-Z])", "-$1").toLowerCase();
-                final String property = environment.getProperty(propertyKey);
-                if (!StringUtils.hasLength(property)) {
-                    log.warn("Field {} may set invalid for Bean {}, PropertyKey was: {} and Value was Null or Not Founded", fieldName, beanName, propertyKey);
-                }
-                //todo add error for critical properties
-                //todo add option to log (@Critical) and  throwing
+                checkPropertyFromEnvironment(beanName, field, propertyKey);
+            }
+        }
+    }
+
+    private void checkPropertyFromEnvironment(String beanName, Field field, String propertyKey) {
+        final String property = environment.getProperty(propertyKey);
+        if (!StringUtils.hasLength(property)) {
+            if (!field.isAnnotationPresent(CriticalProperty.class))
+                log.warn("Field {} may set invalid for Bean {}, PropertyKey was: {} and Value was Null or Not Founded", field.getName(), beanName, propertyKey);
+            else {
+                log.error("Field {} may set invalid for Bean {}, PropertyKey was: {} and Value was Null or Not Founded", field.getName(), beanName, propertyKey);
+                if (field.getAnnotation(CriticalProperty.class).throwException())
+                    throw new CriticalFieldInvalidValue("Field" + field.getName() + "may set invalid for Bean" + beanName +
+                            "PropertyKey was: " + propertyKey + " and Value was Null or Not Founded");
             }
         }
     }
