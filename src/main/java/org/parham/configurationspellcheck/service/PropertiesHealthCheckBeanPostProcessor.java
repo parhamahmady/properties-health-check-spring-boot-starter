@@ -5,6 +5,7 @@ import org.parham.configurationspellcheck.annotation.CriticalProperty;
 import org.parham.configurationspellcheck.annotation.IgnorePropertyCheck;
 import org.parham.configurationspellcheck.exception.CriticalFieldInvalidValue;
 import org.springframework.beans.BeansException;
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.config.BeanPostProcessor;
@@ -22,6 +23,8 @@ import org.springframework.util.ClassUtils;
 import org.springframework.util.StringUtils;
 
 import java.lang.reflect.*;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -31,17 +34,33 @@ import java.util.Objects;
  */
 @Slf4j
 public class PropertiesHealthCheckBeanPostProcessor
-        implements BeanPostProcessor, ApplicationContextAware, EnvironmentAware, PriorityOrdered {
+        implements BeanPostProcessor, ApplicationContextAware, EnvironmentAware, PriorityOrdered, InitializingBean {
     private ApplicationContext applicationContext;
     private Environment environment;
+    private List<String> ignorePackages;
+    private boolean logNotFoundProperties;
 
     @Override
     public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
         final Class<?> beanClass = bean.getClass();
-        final IgnorePropertyCheck ignorePropertyCheckAnn = applicationContext.findAnnotationOnBean(beanName, IgnorePropertyCheck.class);
-        //todo add ignore list
-        if (ignorePropertyCheckAnn != null || beanClass.getPackageName().startsWith("org.springframework"))
+        final IgnorePropertyCheck ignorePropertyCheckAnn;
+        try {
+            ignorePropertyCheckAnn = applicationContext.findAnnotationOnBean(beanName, IgnorePropertyCheck.class);
+        } catch (NoSuchBeanDefinitionException ex) {
             return bean;
+        }
+
+        if (ignorePropertyCheckAnn != null || beanClass.getPackageName().startsWith("org.springframework")) {
+            return bean;
+        }
+
+        if (ignorePackages.stream().anyMatch(ignorePackage -> {
+            ignorePackage = ignorePackage.replaceAll("\\.\\*", "");
+            return beanClass.getPackage().getName().startsWith(ignorePackage);
+        })) {
+            return bean;
+        }
+
         checkFieldProperties(beanName, beanClass);
         checkConstructorBindingProperties(beanName, beanClass);
         return bean;
@@ -66,7 +85,7 @@ public class PropertiesHealthCheckBeanPostProcessor
                 String propertyKey = prefix + "." + parameter.getName()
                         .replaceAll("(?<!^)([A-Z])", "-$1").toLowerCase();
                 final String property = environment.getProperty(propertyKey);
-                if (!StringUtils.hasLength(property)) {
+                if (!StringUtils.hasLength(property) && logNotFoundProperties) {
                     log.warn("Constructor Parameter {} may set invalid for Bean {}, PropertyKey was: {} and Value was Null or Not Founded", parameter.getName(), beanName, propertyKey);
                 }
             }
@@ -106,9 +125,10 @@ public class PropertiesHealthCheckBeanPostProcessor
     private void checkPropertyFromEnvironment(String beanName, Field field, String propertyKey) {
         final String property = environment.getProperty(propertyKey);
         if (!StringUtils.hasLength(property)) {
-            if (!field.isAnnotationPresent(CriticalProperty.class))
-                log.warn("Field {} may set invalid for Bean {}, PropertyKey was: {} and Value was Null or Not Founded", field.getName(), beanName, propertyKey);
-            else {
+            if (!field.isAnnotationPresent(CriticalProperty.class)) {
+                if (logNotFoundProperties)
+                    log.warn("Field {} may set invalid for Bean {}, PropertyKey was: {} and Value was Null or Not Founded", field.getName(), beanName, propertyKey);
+            } else {
                 log.error("Field {} may set invalid for Bean {}, PropertyKey was: {} and Value was Null or Not Founded", field.getName(), beanName, propertyKey);
                 if (field.getAnnotation(CriticalProperty.class).throwException())
                     throw new CriticalFieldInvalidValue("Field" + field.getName() + "may set invalid for Bean" + beanName +
@@ -176,5 +196,13 @@ public class PropertiesHealthCheckBeanPostProcessor
     @Override
     public int getOrder() {
         return Ordered.LOWEST_PRECEDENCE;
+    }
+
+    @Override
+    public void afterPropertiesSet() {
+        final String logProperty = environment.getProperty("properties.health-check.log-not-found-properties");
+        logNotFoundProperties = logProperty == null || Boolean.parseBoolean(logProperty);
+        final String ignoreProperty = environment.getProperty("properties.health-check.ignore-packages");
+        ignorePackages = StringUtils.hasLength(ignoreProperty) ? List.of(ignoreProperty.split(",")) : new ArrayList<>();
     }
 }
