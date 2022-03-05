@@ -7,10 +7,10 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * @author Parham Ahmady
- * @since 4/3/2022
+ * @since 3/3/2022
  */
 @Configuration
-public class ContextConfiguration {
+public class PropertiesHealthCheckStarterConfig {
 
     @Bean
     @ConditionalOnMissingBean

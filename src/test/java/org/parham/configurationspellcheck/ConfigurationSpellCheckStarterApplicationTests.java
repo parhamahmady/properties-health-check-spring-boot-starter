@@ -1,7 +1,7 @@
 package org.parham.configurationspellcheck;
 
 import org.junit.jupiter.api.Test;
-import org.parham.configurationspellcheck.configuration.ContextConfiguration;
+import org.parham.configurationspellcheck.configuration.PropertiesHealthCheckStarterConfig;
 import org.parham.configurationspellcheck.configuration.TestConfiguration;
 import org.parham.configurationspellcheck.entity.NormalTestBeanWithConfigurationPropertiesAnn;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -9,7 +9,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.util.Assert;
 
-@SpringBootTest(classes = {ContextConfiguration.class, TestConfiguration.class})
+@SpringBootTest(classes = {PropertiesHealthCheckStarterConfig.class, TestConfiguration.class})
 class ConfigurationSpellCheckStarterApplicationTests {
 
     @Autowired
